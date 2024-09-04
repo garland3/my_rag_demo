@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { FileText, MessageSquare, ArrowRight, Key, Upload, Check, Database, Loader } from 'lucide-react';
+import { FileText, MessageSquare, ArrowRight, Key, Upload, Check, Database, Loader, Trash2 } from 'lucide-react';
 import { validateApiKey, sendQuestion } from './api';
 import * as pdfjsLib from 'pdfjs-dist';
 import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.entry';
@@ -62,6 +62,8 @@ const RAGApp = () => {
   const [debugInfo, setDebugInfo] = useState('');
   const [vectorStore, setVectorStore] = useState(null);
   const [worker, setWorker] = useState(null);
+  const [highlightedSnippets, setHighlightedSnippets] = useState([]);
+  const pdfTextRef = useRef(null);
 
   useEffect(() => {
     const newWorker = new Worker(new URL('./indexWorker.js', import.meta.url));
@@ -164,6 +166,9 @@ const RAGApp = () => {
       const response = await sendQuestion(apiKey, question, context);
       setSnippets(relevantDocs.map(doc => doc.pageContent));
       setAnswer(response.answer);
+      
+      // Highlight the relevant snippets in the PDF text
+      setHighlightedSnippets(relevantDocs.map(doc => doc.pageContent));
     } catch (err) {
       setError(err.message || 'An error occurred while processing your request.');
     } finally {
@@ -323,6 +328,40 @@ const RAGApp = () => {
     }
   }, [apiKey, pdfText, worker]); // Dependencies for useCallback
 
+  // Function to highlight snippets in the PDF text
+  const highlightSnippets = useCallback(() => {
+    if (pdfTextRef.current && highlightedSnippets.length > 0) {
+      let highlightedText = pdfText;
+      highlightedSnippets.forEach((snippet, index) => {
+        const escapedSnippet = snippet.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const regex = new RegExp(escapedSnippet, 'g');
+        highlightedText = highlightedText.replace(regex, `<span class="bg-yellow-200" data-snippet-index="${index}">${snippet}</span>`);
+      });
+      pdfTextRef.current.innerHTML = highlightedText;
+    }
+  }, [pdfText, highlightedSnippets]);
+
+  useEffect(() => {
+    highlightSnippets();
+  }, [highlightSnippets]);
+
+  // Add a new function to handle the reset action
+  const handleReset = useCallback(() => {
+    setPdfText('');
+    setSnippets([]);
+    setAnswer('');
+    setIsIndexed(false);
+    setIndexingProgress(0);
+    setDebugInfo('');
+    // Reset the file input
+    const fileInput = document.getElementById('pdf-upload');
+    if (fileInput) {
+      fileInput.value = '';
+    }
+    console.log("Document and related data reset");
+    setDebugInfo(prev => prev + "\nDocument and related data reset");
+  }, []);
+
   return (
     <ErrorBoundary>
       <div className="flex flex-col h-screen bg-gray-100 p-4">
@@ -379,6 +418,16 @@ const RAGApp = () => {
             {isIndexing ? 'Indexing...' : 'Index Document'}
           </button>
           {isIndexed && <Check className="text-green-500" />}
+          
+          {/* Add the new Reset button */}
+          <button
+            className="ml-2 bg-red-500 text-white p-2 rounded flex items-center"
+            onClick={handleReset}
+          >
+            <Trash2 className="mr-2" />
+            Reset
+          </button>
+          
           <button
             className="ml-4 bg-gray-300 text-gray-700 p-2 rounded"
             onClick={() => setDebugMode(!debugMode)}
@@ -426,12 +475,11 @@ const RAGApp = () => {
                 className="hidden"
               />
             </div>
-            <div className="bg-gray-50 p-4 rounded">
-              {pdfText ? (
-                <p className="whitespace-pre-wrap">{pdfText}</p>
-              ) : (
-                <p className="text-gray-500">Upload a PDF to see its content here.</p>
-              )}
+            <div
+              ref={pdfTextRef}
+              className="bg-gray-50 p-4 rounded whitespace-pre-wrap"
+            >
+              {pdfText}
             </div>
           </div>
           

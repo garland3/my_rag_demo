@@ -40,3 +40,47 @@ To start the development server:
    ```
 
 This will start the Vue development server. Open your browser and navigate to `http://localhost:8080` (or the port specified in the console output) to view the application.
+
+## Running the Application Directly in a Web Browser
+
+To run the application without using a development server, follow these steps:
+
+1. Create a production build of the application:
+   ```
+   npm run build
+   ```
+
+2. The `dist` folder will be created with optimized static files.
+
+3. You can serve these static files using one of the following methods:
+
+   a. Use a simple HTTP server:
+      ```
+      npm install -g http-server
+      cd dist
+      http-server
+      ```
+      Then open your browser and go to `http://localhost:8080`.
+
+   b. Use Python's built-in HTTP server:
+      ```
+      cd dist
+      python -m http.server 8000
+      ```
+      Then open your browser and go to `http://localhost:8000`.
+
+   c. Use PHP's built-in server:
+      ```
+      cd dist
+      php -S localhost:8000
+      ```
+      Then open your browser and go to `http://localhost:8000`.
+
+4. Alternatively, you can open the `dist/index.html` file directly in your browser, but this method might have limitations due to CORS issues when loading assets and making API calls.
+
+Note: Running the application as a static site has some limitations:
+- Server-side features won't be available.
+- API calls might be restricted due to CORS policies.
+- Some features that rely on a development server might not work as expected.
+
+For the best experience and full functionality, it's recommended to run the application using `npm run serve` during development and to deploy it to a proper hosting service for production use.

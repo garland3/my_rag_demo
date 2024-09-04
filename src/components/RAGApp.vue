@@ -42,11 +42,6 @@
                     <input id="file-upload" type="file" @change="handleFileUpload" accept="application/pdf"
                         class="hidden" />
                 </label>
-                <button @click="indexDocument"
-                    class="bg-green-600 text-white px-4 py-2 rounded-md hover:bg-green-700 transition duration-150 ease-in-out ml-2"
-                    :disabled="!pdfText || isIndexing">
-                    {{ isIndexing ? 'Indexing...' : 'Index Document' }}
-                </button>
                 <button @click="clearEmbeddingsCache"
                     class="bg-red-600 text-white px-4 py-2 rounded-md hover:bg-red-700 transition duration-150 ease-in-out ml-2">
                     Clear Embeddings Cache
@@ -60,28 +55,32 @@
             <!-- Center Column - Question Input and AI Response -->
             <div class="w-1/3 flex flex-col">
                 <div class="bg-white p-6 rounded-lg shadow sticky top-6">
-                    <h2 class="text-xl font-semibold mb-4 text-gray-800">Ask a Question</h2>
-                    <textarea v-model="question" placeholder="Ask a question about the document..."
+                    <h2 class="text-lg font-semibold mb-4">Ask a Question</h2>
+                    <textarea 
+                        v-model="question" 
+                        @keyup.enter="submitQuestion"
+                        placeholder="Ask a question about the document..."
                         class="w-full p-2 border border-gray-300 rounded-md mb-4 focus:ring-indigo-500 focus:border-indigo-500"
-                        rows="4"></textarea>
+                        rows="4"
+                    ></textarea>
                     <button @click="submitQuestion"
                         class="w-full bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition duration-150 ease-in-out"
                         :disabled="!question || !isIndexed || isProcessing">
                         {{ isProcessing ? 'Processing...' : 'Submit Question' }}
                     </button>
                     <p v-if="error" class="mt-2 text-red-600">{{ error }}</p>
-                </div>
-                <div v-if="ragResponse" class="mt-4 bg-white p-6 rounded-lg shadow">
-                    <h3 class="text-lg font-semibold mb-2">AI Response:</h3>
-                    <p class="text-gray-600">{{ ragResponse }}</p>
+                    
+                    <!-- AI Response (now in the same panel) -->
+                    <div v-if="ragResponse" class="mt-4">
+                        <h3 class="text-lg font-semibold mb-2">AI Response:</h3>
+                        <p class="text-gray-600">{{ ragResponse }}</p>
+                    </div>
                 </div>
             </div>
 
             <!-- Right Column - RAG Output -->
             <div class="w-1/3 bg-white p-6 rounded-lg shadow overflow-y-auto">
-                <h2 class="text-xl font-semibold mb-4 text-gray-800">RAG Response</h2>
-                <div v-if="isProcessing" class="text-gray-600">Processing question...</div>
-                <div v-else-if="error" class="text-red-600">{{ error }}</div>
+                <h2 class="text-xl font-semibold mb-4 text-gray-800">RAG Details</h2>
                 <div v-if="prompt" class="mb-4">
                     <h3 class="text-lg font-semibold mb-2">Generated Prompt:</h3>
                     <div class="bg-gray-100 p-2 rounded-md whitespace-pre-wrap text-sm" v-html="coloredPrompt"></div>
@@ -96,13 +95,13 @@ import * as pdfjsLib from 'pdfjs-dist';
 import axios from 'axios';
 import { v4 as uuidv4 } from 'uuid';
 
-const CHUNK_SIZE = 2000; // DONOT CHANGE
-const CHUNK_OVERLAP = 200; // DONOT CHANGE
-const DELAY_BETWEEN_BATCHES = 200; // DONOT CHANGE
+const CHUNK_SIZE = 5000; // DONOT CHANGE
+const CHUNK_OVERLAP = 500; // DONOT CHANGE
+const DELAY_BETWEEN_BATCHES = 100; // DONOT CHANGE
 const API_TIMEOUT = 10000; // 10 seconds timeout for API calls
 const EMBEDDING_MODEL = 'text-embedding-3-small'; // DONOT CHANGE
 const CHAT_MODEL = 'gpt-4o-mini'; // DONOT CHANGE
-const TOP_K_SIMILAR_CHUNKS = 5; // DONOT CHANGE
+const TOP_K_SIMILAR_CHUNKS = 8; // DONOT CHANGE
 
 export default {
     name: 'RAGApp',
@@ -174,6 +173,8 @@ export default {
                 try {
                     const text = await this.extractTextFromPDF(file);
                     this.pdfText = text;
+                    // Automatically start indexing after text extraction
+                    await this.indexDocument();
                 } catch (error) {
                     console.error('Error processing PDF:', error);
                     alert('Error processing PDF. Please try again.');
@@ -355,59 +356,61 @@ ${question}
             const textArray = Array.isArray(texts) ? texts : [texts];
 
             const embeddings = [];
+            const batchSize = 10; // Adjust this value based on API limits and performance
 
-            for (let i = 0; i < textArray.length; i += 10) {
-                const batch = textArray.slice(i, i + 10);
+            for (let i = 0; i < textArray.length; i += batchSize) {
+                const batch = textArray.slice(i, i + batchSize);
 
                 const cacheKeys = batch.map(text => this.hashText(text));
                 const uncachedTexts = [];
-                const uncachedKeys = [];
+                const uncachedIndices = [];
 
                 // Check cache for each text in the batch
                 for (let j = 0; j < batch.length; j++) {
                     if (this.embeddingCache.has(cacheKeys[j])) {
-                        embeddings.push(this.embeddingCache.get(cacheKeys[j]));
+                        embeddings[i + j] = this.embeddingCache.get(cacheKeys[j]);
                     } else {
                         uncachedTexts.push(batch[j]);
-                        uncachedKeys.push(cacheKeys[j]);
+                        uncachedIndices.push(i + j);
                     }
                 }
 
-                // If all texts are cached, continue to the next batch
-                if (uncachedTexts.length === 0) continue;
+                // If there are uncached texts, get their embeddings
+                if (uncachedTexts.length > 0) {
+                    try {
+                        console.log(`Requesting embeddings for ${uncachedTexts.length} texts...`);
 
-                try {
-                    console.log(`Requesting embeddings for ${uncachedTexts.length} texts...`);
-
-                    const response = await axios.post(
-                        'https://api.openai.com/v1/embeddings',
-                        {
-                            input: uncachedTexts,
-                            model: this.embeddingModel,
-                        },
-                        {
-                            headers: {
-                                'Authorization': `Bearer ${this.apiKey}`,
-                                'Content-Type': 'application/json',
+                        const response = await axios.post(
+                            'https://api.openai.com/v1/embeddings',
+                            {
+                                input: uncachedTexts,
+                                model: this.embeddingModel,
                             },
-                            timeout: API_TIMEOUT,
-                        }
-                    );
-                    console.log('Embeddings received successfully');
+                            {
+                                headers: {
+                                    'Authorization': `Bearer ${this.apiKey}`,
+                                    'Content-Type': 'application/json',
+                                },
+                                timeout: API_TIMEOUT,
+                            }
+                        );
+                        console.log('Embeddings received successfully');
 
-                    // Store received embeddings in cache and result list
-                    response.data.data.forEach((embeddingData, index) => {
-                        const embedding = embeddingData.embedding;
-                        this.embeddingCache.set(uncachedKeys[index], embedding);
-                        embeddings.push(embedding);
-                    });
-                } catch (error) {
-                    if (error.code === 'ECONNABORTED') {
-                        console.error('API request timed out');
-                    } else {
-                        console.error('Error getting embeddings:', error.response ? error.response.data : error.message);
+                        // Store received embeddings in cache and result list
+                        response.data.data.forEach((embeddingData, index) => {
+                            const embedding = embeddingData.embedding;
+                            const originalIndex = uncachedIndices[index];
+                            this.embeddingCache.set(cacheKeys[originalIndex - i], embedding);
+                            embeddings[originalIndex] = embedding;
+                        });
+                    } catch (error) {
+                        if (error.code === 'ECONNABORTED') {
+                            console.error('API request timed out');
+                        } else {
+                            console.error('Error getting embeddings:', error.response ? error.response.data : error.message);
+                        }
+                        throw error;
                     }
-                    throw error;
                 }
             }
 

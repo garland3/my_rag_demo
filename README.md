@@ -1,8 +1,8 @@
-# RAG App (Vue.js Version)
+# RAG App (Vue Version)
 
 ## Overview
 
-This is a Vue.js-based Retrieval-Augmented Generation (RAG) application that allows users to upload PDF documents, index their content, and ask questions about the documents using OpenAI's language models.
+This is a Vue-based Retrieval-Augmented Generation (RAG) application that allows users to upload PDF documents, index their content, and ask questions about the documents using OpenAI's language models.
 
 ## Features
 
@@ -35,3 +35,8 @@ This is a Vue.js-based Retrieval-Augmented Generation (RAG) application that all
 ## Running the Application
 
 To start the development server:
+   ```
+   npm run serve
+   ```
+
+This will start the Vue development server. Open your browser and navigate to `http://localhost:8080` (or the port specified in the console output) to view the application.
